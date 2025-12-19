@@ -1,0 +1,68 @@
+trigger:
+- master
+
+pool:
+  name: 'Testing agent pool'  # Your self-hosted Linux agent
+
+variables:
+  acrLoginServer: saadi.azurecr.io
+  imageName: TestingWebsite
+  imageTag: $(Build.BuildId)   # Unique tag for each build
+  resourceGroup: 'RG-Saad'  # Replace with your RG
+  webAppName: 'Testing2121'             # Replace with your Web App name
+
+steps:
+# Step 1: Checkout source code
+- checkout: self
+  displayName: 'Checkout Source Code'
+
+# Step 2: Verify Docker installation
+- script: |
+    echo "Docker version:"
+    docker version
+  displayName: 'Verify Docker'
+
+# Step 3: Login to Azure
+- task: AzureCLI@2
+  displayName: 'Azure Login'
+  inputs:
+    azureSubscription: 'Azure-Service-Connection'  # Your Azure RM service connection
+    scriptType: bash
+    scriptLocation: inlineScript
+    inlineScript: |
+      echo "Logged into Azure"
+
+# Step 4: Build and Push Docker Image to ACR
+- task: Docker@2
+  displayName: 'Build and Push Docker Image to ACR'
+  inputs:
+    command: buildAndPush
+    containerRegistry: 'Docker-image'   # Your ACR service connection
+    repository: $(imageName)
+    dockerfile: Dockerfile
+    tags: |
+      $(imageTag)
+      latest
+    arguments: '--no-cache'
+
+# Step 5: Deploy Docker Image to Azure Web App
+- task: AzureWebAppContainer@1
+  displayName: 'Deploy Docker Image to Web App'
+  inputs:
+    azureSubscription: 'Azure-Service-Connection'
+    appName: $(webAppName)
+    containers: |
+      $(acrLoginServer)/$(imageName):$(imageTag)
+    enableAppServiceStorage: false
+    startupCommand: ''  # Forces redeployment
+
+# Step 6: Force Web App Restart to pick latest image
+- task: AzureCLI@2
+  displayName: 'Restart Web App'
+  inputs:
+    azureSubscription: 'Azure-Service-Connection'
+    scriptType: bash
+    scriptLocation: inlineScript
+    inlineScript: |
+      az webapp restart --name $(webAppName) --resource-group $(resourceGroup)
+      echo "Web App restarted successfully"
